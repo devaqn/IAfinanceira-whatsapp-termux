@@ -3,21 +3,44 @@ class ReportGenerator {
     this.dao = dao;
   }
 
+  // ============ FORMATAÇÃO ============
+  
   formatMoney(value) {
     return 'R$ ' + value.toFixed(2).replace('.', ',');
   }
 
+  // 🔧 CORRIGIDO: Data no fuso horário do Brasil
+  getBrazilDate(date) {
+    const d = date ? new Date(date) : new Date();
+    // Offset UTC-3 (Brasília)
+    const brazilOffset = -3 * 60;
+    const localOffset = d.getTimezoneOffset();
+    const diff = brazilOffset - localOffset;
+    return new Date(d.getTime() + diff * 60000);
+  }
+
   formatDate(date) {
-    const d = new Date(date);
+    const d = this.getBrazilDate(date);
     const day = String(d.getDate()).padStart(2, '0');
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const year = d.getFullYear();
     const hour = String(d.getHours()).padStart(2, '0');
     const minute = String(d.getMinutes()).padStart(2, '0');
-    return day + '/' + month + '/' + year + ' ' + hour + ':' + minute;
+    return day + '/' + month + '/' + year + ' às ' + hour + ':' + minute;
   }
 
+  formatDateShort(date) {
+    const d = this.getBrazilDate(date);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return day + '/' + month + '/' + year;
+  }
+
+  // ============ RELATÓRIO DE SALDO ============
+  
   generateBalanceReport(user) {
+    const totalMoney = user.current_balance + user.savings_balance + user.emergency_fund;
     const percentage = user.initial_balance > 0 
       ? ((user.current_balance / user.initial_balance) * 100).toFixed(1)
       : 0;
@@ -28,75 +51,128 @@ class ReportGenerator {
     if (percentage < 20) emoji = '🚨';
     else if (percentage < 50) emoji = '⚠️';
 
-    return emoji + ' *SALDO ATUAL*\n\n' +
-      '👤 *Usuário:* ' + user.name + '\n\n' +
-      '💵 *Saldo Inicial:* ' + this.formatMoney(user.initial_balance) + '\n' +
-      '💸 *Total Gasto:* ' + this.formatMoney(spent) + '\n' +
-      emoji + ' *Saldo Restante:* ' + this.formatMoney(user.current_balance) + '\n\n' +
-      '📊 *Percentual Restante:* ' + percentage + '%\n\n' +
-      '_Atualizado em: ' + this.formatDate(new Date()) + '_';
+    let report = '━━━━━━━━━━━━━━━━━━━━━\n';
+    report += emoji + ' *RESUMO FINANCEIRO*\n';
+    report += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    report += '👤 *Usuário:* ' + user.name + '\n';
+    report += '📅 *Data:* ' + this.formatDateShort(new Date()) + '\n\n';
+    
+    report += '💵 *SALDO PRINCIPAL*\n';
+    report += '   Inicial: ' + this.formatMoney(user.initial_balance) + '\n';
+    report += '   Gasto: ' + this.formatMoney(spent) + '\n';
+    report += '   Disponível: *' + this.formatMoney(user.current_balance) + '*\n';
+    report += '   └─ ' + percentage + '% restante\n\n';
+    
+    if (user.savings_balance > 0) {
+      report += '🐷 *POUPANÇA*\n';
+      report += '   Guardado: *' + this.formatMoney(user.savings_balance) + '*\n\n';
+    }
+    
+    if (user.emergency_fund > 0) {
+      report += '🚨 *RESERVA DE EMERGÊNCIA*\n';
+      report += '   Reservado: *' + this.formatMoney(user.emergency_fund) + '*\n\n';
+    }
+    
+    report += '💎 *PATRIMÔNIO TOTAL*\n';
+    report += '   *' + this.formatMoney(totalMoney) + '*\n\n';
+    
+    report += '━━━━━━━━━━━━━━━━━━━━━\n';
+    report += '_Atualizado em ' + this.formatDate(new Date()) + '_';
+
+    return report;
   }
 
+  // ============ RELATÓRIO DIÁRIO ============
+  
   generateDailyReport(userId) {
     const user = this.dao.getUserById(userId);
     
-    const today = new Date();
+    // 🔧 CORRIGIDO: Usar data do Brasil
+    const today = this.getBrazilDate(new Date());
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const expenses = this.dao.getExpensesByUser(userId, {
       startDate: today.toISOString(),
-      endDate: tomorrow.toISOString()
+      endDate: tomorrow.toISOString(),
+      transactionType: 'expense'
     });
 
-    let total = 0;
+    let totalExpenses = 0;
     for (let i = 0; i < expenses.length; i++) {
-      total += expenses[i].amount;
+      totalExpenses += expenses[i].amount;
     }
     
     const byCategory = this.dao.getExpensesByCategory(userId, today.toISOString(), tomorrow.toISOString());
+    
+    const totalMoney = user.current_balance + user.savings_balance + user.emergency_fund;
 
-    let report = '📅 *RELATÓRIO DIÁRIO*\n\n' +
-      '👤 *Usuário:* ' + user.name + '\n' +
-      '📆 *Data:* ' + this.formatDate(today) + '\n\n' +
-      '💸 *Total Gasto Hoje:* ' + this.formatMoney(total) + '\n' +
-      '📝 *Número de Gastos:* ' + expenses.length + '\n\n';
+    let report = '━━━━━━━━━━━━━━━━━━━━━\n';
+    report += '📅 *RELATÓRIO DIÁRIO*\n';
+    report += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    report += '👤 *Usuário:* ' + user.name + '\n';
+    report += '📆 *Data:* ' + this.formatDateShort(today) + '\n\n';
+    
+    report += '💸 *MOVIMENTAÇÃO HOJE*\n';
+    report += '   Gastos: ' + this.formatMoney(totalExpenses) + '\n';
+    report += '   Transações: ' + expenses.length + '\n\n';
+    
+    report += '💰 *SITUAÇÃO ATUAL*\n';
+    report += '   Saldo: ' + this.formatMoney(user.current_balance) + '\n';
+    if (user.savings_balance > 0) {
+      report += '   Poupança: ' + this.formatMoney(user.savings_balance) + '\n';
+    }
+    if (user.emergency_fund > 0) {
+      report += '   Emergência: ' + this.formatMoney(user.emergency_fund) + '\n';
+    }
+    report += '   *Total: ' + this.formatMoney(totalMoney) + '*\n\n';
 
     if (byCategory.length > 0) {
-      report += '\n🏷️ *Por Categoria:*\n';
-      for (let i = 0; i < byCategory.length; i++) {
+      report += '🏷️ *GASTOS POR CATEGORIA*\n';
+      for (let i = 0; i < Math.min(byCategory.length, 5); i++) {
         const cat = byCategory[i];
-        report += cat.emoji + ' ' + cat.category + ': ' + this.formatMoney(cat.total) + ' (' + cat.count + 'x)\n';
+        const percent = ((cat.total / totalExpenses) * 100).toFixed(0);
+        report += '   ' + cat.emoji + ' ' + cat.category + ': ' + this.formatMoney(cat.total) + ' (' + percent + '%)\n';
       }
+      report += '\n';
     }
 
     if (expenses.length > 0) {
-      report += '\n\n📋 *Últimos Gastos:*\n';
-      const limit = Math.min(expenses.length, 10);
+      report += '📋 *ÚLTIMOS GASTOS*\n';
+      const limit = Math.min(expenses.length, 5);
       for (let i = 0; i < limit; i++) {
         const exp = expenses[i];
-        const d = new Date(exp.date);
+        const d = this.getBrazilDate(exp.date);
         const time = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-        report += '• ' + time + ' - ' + exp.description + ' - ' + this.formatMoney(exp.amount) + '\n';
+        report += '   • ' + time + ' - ' + exp.description + '\n';
+        report += '     ' + this.formatMoney(exp.amount) + '\n';
       }
     } else {
-      report += '\n✅ Nenhum gasto registrado hoje!';
+      report += '✅ *Nenhum gasto hoje!*\n';
+      report += 'Você está no controle! 🎯\n';
     }
+    
+    report += '\n━━━━━━━━━━━━━━━━━━━━━';
 
     return report;
   }
 
+  // ============ RELATÓRIO SEMANAL ============
+  
   generateWeeklyReport(userId) {
     const user = this.dao.getUserById(userId);
     
-    const today = new Date();
+    const today = this.getBrazilDate(new Date());
     const weekAgo = new Date(today);
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const expenses = this.dao.getExpensesByUser(userId, {
       startDate: weekAgo.toISOString(),
-      endDate: today.toISOString()
+      endDate: today.toISOString(),
+      transactionType: 'expense'
     });
 
     let total = 0;
@@ -106,46 +182,70 @@ class ReportGenerator {
     const average = expenses.length > 0 ? total / 7 : 0;
     
     const byCategory = this.dao.getExpensesByCategory(userId, weekAgo.toISOString(), today.toISOString());
+    const totalMoney = user.current_balance + user.savings_balance + user.emergency_fund;
 
-    let report = '📊 *RELATÓRIO SEMANAL*\n\n' +
-      '👤 *Usuário:* ' + user.name + '\n' +
-      '📆 *Período:* ' + this.formatDate(weekAgo) + ' até ' + this.formatDate(today) + '\n\n' +
-      '💸 *Total Gasto:* ' + this.formatMoney(total) + '\n' +
-      '📝 *Número de Gastos:* ' + expenses.length + '\n' +
-      '📉 *Média Diária:* ' + this.formatMoney(average) + '\n\n';
+    let report = '━━━━━━━━━━━━━━━━━━━━━\n';
+    report += '📊 *RELATÓRIO SEMANAL*\n';
+    report += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    report += '👤 *Usuário:* ' + user.name + '\n';
+    report += '📆 *Período:* ' + this.formatDateShort(weekAgo) + ' até ' + this.formatDateShort(today) + '\n\n';
+    
+    report += '💸 *RESUMO DA SEMANA*\n';
+    report += '   Total gasto: ' + this.formatMoney(total) + '\n';
+    report += '   Transações: ' + expenses.length + '\n';
+    report += '   Média/dia: ' + this.formatMoney(average) + '\n\n';
+    
+    report += '💰 *SITUAÇÃO ATUAL*\n';
+    report += '   Saldo: ' + this.formatMoney(user.current_balance) + '\n';
+    if (user.savings_balance > 0) {
+      report += '   Poupança: ' + this.formatMoney(user.savings_balance) + '\n';
+    }
+    if (user.emergency_fund > 0) {
+      report += '   Emergência: ' + this.formatMoney(user.emergency_fund) + '\n';
+    }
+    report += '   *Total: ' + this.formatMoney(totalMoney) + '*\n\n';
 
     if (byCategory.length > 0) {
-      report += '\n🏷️ *Por Categoria:*\n';
-      for (let i = 0; i < byCategory.length; i++) {
+      report += '🏷️ *CATEGORIAS MAIS USADAS*\n';
+      for (let i = 0; i < Math.min(byCategory.length, 5); i++) {
         const cat = byCategory[i];
-        const percentage = ((cat.total / total) * 100).toFixed(1);
-        report += cat.emoji + ' ' + cat.category + ': ' + this.formatMoney(cat.total) + ' (' + percentage + '%)\n';
+        const percentage = ((cat.total / total) * 100).toFixed(0);
+        report += '   ' + cat.emoji + ' ' + cat.category + '\n';
+        report += '     ' + this.formatMoney(cat.total) + ' (' + percentage + '%)\n';
       }
+      report += '\n';
     }
 
     if (expenses.length > 0) {
       const sorted = expenses.slice().sort(function(a, b) { return b.amount - a.amount; });
-      const topExpenses = sorted.slice(0, 5);
-      report += '\n\n💰 *Maiores Gastos:*\n';
+      const topExpenses = sorted.slice(0, 3);
+      report += '💰 *MAIORES GASTOS*\n';
       for (let i = 0; i < topExpenses.length; i++) {
         const exp = topExpenses[i];
-        report += (i + 1) + '. ' + exp.description + ' - ' + this.formatMoney(exp.amount) + '\n';
+        report += '   ' + (i + 1) + '. ' + exp.description + '\n';
+        report += '      ' + this.formatMoney(exp.amount) + '\n';
       }
     }
+    
+    report += '\n━━━━━━━━━━━━━━━━━━━━━';
 
     return report;
   }
 
+  // ============ RELATÓRIO MENSAL ============
+  
   generateMonthlyReport(userId) {
     const user = this.dao.getUserById(userId);
     
-    const today = new Date();
+    const today = this.getBrazilDate(new Date());
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
     const expenses = this.dao.getExpensesByUser(userId, {
       startDate: monthStart.toISOString(),
-      endDate: monthEnd.toISOString()
+      endDate: monthEnd.toISOString(),
+      transactionType: 'expense'
     });
 
     let total = 0;
@@ -153,90 +253,218 @@ class ReportGenerator {
       total += expenses[i].amount;
     }
     const daysInMonth = monthEnd.getDate();
-    const average = expenses.length > 0 ? total / daysInMonth : 0;
+    const currentDay = today.getDate();
+    const average = currentDay > 0 ? total / currentDay : 0;
+    const projection = average * daysInMonth;
     
     const stats = this.dao.getUserStats(userId);
     const byCategory = this.dao.getExpensesByCategory(userId, monthStart.toISOString(), monthEnd.toISOString());
+    const totalMoney = user.current_balance + user.savings_balance + user.emergency_fund;
 
-    const monthNames = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-    const monthName = monthNames[monthStart.getMonth()] + ' ' + monthStart.getFullYear();
+    const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const monthName = monthNames[monthStart.getMonth()] + '/' + monthStart.getFullYear();
 
-    let report = '📈 *RELATÓRIO MENSAL*\n\n' +
-      '👤 *Usuário:* ' + user.name + '\n' +
-      '📆 *Mês:* ' + monthName + '\n\n' +
-      '💸 *Total Gasto:* ' + this.formatMoney(total) + '\n' +
-      '📝 *Número de Gastos:* ' + expenses.length + '\n' +
-      '📉 *Média Diária:* ' + this.formatMoney(average) + '\n' +
-      '💰 *Gasto Médio:* ' + this.formatMoney(stats.avg_expense || 0) + '\n\n';
+    let report = '━━━━━━━━━━━━━━━━━━━━━\n';
+    report += '📈 *RELATÓRIO MENSAL*\n';
+    report += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    report += '👤 *Usuário:* ' + user.name + '\n';
+    report += '📆 *Mês:* ' + monthName + '\n\n';
+    
+    report += '💸 *RESUMO DO MÊS*\n';
+    report += '   Total gasto: ' + this.formatMoney(total) + '\n';
+    report += '   Transações: ' + expenses.length + '\n';
+    report += '   Média/dia: ' + this.formatMoney(average) + '\n';
+    report += '   Projeção mensal: ' + this.formatMoney(projection) + '\n';
+    report += '   Ticket médio: ' + this.formatMoney(stats.avg_expense || 0) + '\n\n';
+    
+    report += '💰 *SITUAÇÃO ATUAL*\n';
+    report += '   Saldo: ' + this.formatMoney(user.current_balance) + '\n';
+    if (user.savings_balance > 0) {
+      report += '   Poupança: ' + this.formatMoney(user.savings_balance) + '\n';
+    }
+    if (user.emergency_fund > 0) {
+      report += '   Emergência: ' + this.formatMoney(user.emergency_fund) + '\n';
+    }
+    report += '   *Total: ' + this.formatMoney(totalMoney) + '*\n\n';
 
     if (byCategory.length > 0) {
-      report += '\n🏷️ *Gastos por Categoria:*\n';
-      for (let i = 0; i < byCategory.length; i++) {
+      report += '🏷️ *DISTRIBUIÇÃO POR CATEGORIA*\n';
+      for (let i = 0; i < Math.min(byCategory.length, 8); i++) {
         const cat = byCategory[i];
-        const percentage = ((cat.total / total) * 100).toFixed(1);
-        report += cat.emoji + ' ' + cat.category + '\n';
-        report += '   💵 ' + this.formatMoney(cat.total) + ' (' + percentage + '%) - ' + cat.count + ' gastos\n';
+        const percentage = ((cat.total / total) * 100).toFixed(0);
+        report += '   ' + cat.emoji + ' ' + cat.category + '\n';
+        report += '     ' + this.formatMoney(cat.total) + ' (' + percentage + '%) • ' + cat.count + 'x\n';
       }
+      report += '\n';
     }
 
-    const remaining = user.current_balance;
-    const percentageUsed = user.initial_balance > 0 ? ((total / user.initial_balance) * 100).toFixed(1) : 0;
+    const percentageUsed = user.initial_balance > 0 ? ((total / user.initial_balance) * 100).toFixed(0) : 0;
+    const percentageSaved = user.initial_balance > 0 ? ((totalMoney / user.initial_balance) * 100).toFixed(0) : 0;
 
-    report += '\n\n💰 *Situação Atual:*\n';
-    report += '• Saldo Restante: ' + this.formatMoney(remaining) + '\n';
-    report += '• Percentual Usado: ' + percentageUsed + '%\n';
+    report += '📊 *ANÁLISE FINANCEIRA*\n';
+    report += '   Percentual gasto: ' + percentageUsed + '%\n';
+    report += '   Patrimônio atual: ' + percentageSaved + '%\n';
 
-    if (remaining < 0) {
-      report += '\n⚠️ *ATENÇÃO:* Você está no vermelho!';
-    } else if (remaining < user.initial_balance * 0.2) {
-      report += '\n⚠️ *AVISO:* Menos de 20% do saldo restante!';
+    if (user.current_balance < 0) {
+      report += '\n🚨 *ATENÇÃO: Saldo negativo!*\n';
+      report += 'Você está gastando mais do que tem.\n';
+    } else if (user.current_balance < user.initial_balance * 0.3) {
+      report += '\n⚠️ *AVISO: Saldo baixo!*\n';
+      report += 'Considere reduzir gastos.\n';
+    } else {
+      report += '\n✅ *Parabéns! Você está no controle!*\n';
     }
+    
+    report += '\n━━━━━━━━━━━━━━━━━━━━━';
 
     return report;
   }
 
+  // ============ CONFIRMAÇÃO DE GASTO ============
+  
   generateExpenseConfirmation(expense, user, category) {
-    return '✅ *Gasto Registrado!*\n\n' +
-      category.emoji + ' *Categoria:* ' + category.name + '\n' +
-      '💵 *Valor:* ' + this.formatMoney(expense.amount) + '\n' +
-      '📝 *Descrição:* ' + expense.description + '\n' +
-      '📅 *Data:* ' + this.formatDate(expense.date) + '\n\n' +
-      '💰 *Saldo Atualizado:* ' + this.formatMoney(user.current_balance);
+    let report = '✅ *GASTO REGISTRADO*\n\n';
+    
+    report += category.emoji + ' *Categoria:* ' + category.name + '\n';
+    report += '💵 *Valor:* ' + this.formatMoney(expense.amount) + '\n';
+    report += '📝 *Descrição:* ' + expense.description + '\n';
+    report += '📅 *Data:* ' + this.formatDate(expense.date) + '\n\n';
+    
+    report += '💰 *Saldo Atualizado*\n';
+    report += '   Principal: *' + this.formatMoney(user.current_balance) + '*\n';
+    
+    if (user.savings_balance > 0) {
+      report += '   Poupança: ' + this.formatMoney(user.savings_balance) + '\n';
+    }
+    if (user.emergency_fund > 0) {
+      report += '   Emergência: ' + this.formatMoney(user.emergency_fund) + '\n';
+    }
+    
+    const totalMoney = user.current_balance + user.savings_balance + user.emergency_fund;
+    report += '   Total: ' + this.formatMoney(totalMoney);
+    
+    return report;
   }
 
+  // ============ AJUDA ============
+  
   generateHelpMessage() {
-    return '🤖 *BOT FINANCEIRO - AJUDA*\n\n' +
-      '📝 *Registrar Gasto:*\n' +
-      'Envie uma mensagem como:\n' +
-      '• "Gastei 50 reais no mercado"\n' +
-      '• "Paguei 15 no uber"\n' +
-      '• "Comprei um sorvete por 3 reais"\n\n' +
-      '💰 *Comandos de Saldo:*\n' +
-      '• `/saldo 1000` - Define saldo inicial\n' +
-      '• `/saldo` - Consulta saldo atual\n\n' +
-      '📊 *Relatórios:*\n' +
-      '• `/relatorio diário` - Gastos de hoje\n' +
-      '• `/relatorio semanal` - Últimos 7 dias\n' +
-      '• `/relatorio mensal` - Mês atual\n\n' +
-      'ℹ️ *Outros Comandos:*\n' +
-      '• `/ajuda` - Mostra esta mensagem\n' +
-      '• `/start` - Inicia o bot\n\n' +
-      '🏷️ *Categorias Automáticas:*\n' +
-      '🍔 Alimentação | 🚗 Transporte | 🛒 Mercado\n' +
-      '🎮 Lazer | 💳 Contas | 💊 Saúde\n' +
-      '📚 Educação | 👕 Vestuário | 📝 Outros\n\n' +
-      '_O bot identifica a categoria automaticamente baseado na descrição!_';
+    let help = '━━━━━━━━━━━━━━━━━━━━━\n';
+    help += '🤖 *BOT FINANCEIRO - AJUDA*\n';
+    help += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    help += '💸 *REGISTRAR GASTO*\n';
+    help += 'Escreva naturalmente:\n';
+    help += '• "Gastei 50 no mercado"\n';
+    help += '• "Paguei 15 no uber"\n';
+    help += '• "Almocei por 25 reais"\n\n';
+    
+    help += '💰 *SALDO PRINCIPAL*\n';
+    help += '• `/saldo` - Ver saldo\n';
+    help += '• `/saldo 1000` - Definir inicial\n';
+    help += '• `/adicionar 500` - Adicionar saldo\n\n';
+    
+    help += '🐷 *POUPANÇA*\n';
+    help += '• `/poupanca` - Ver poupança\n';
+    help += '• `/guardar 100` - Guardar dinheiro\n';
+    help += '• `/retirar 50` - Retirar da poupança\n\n';
+    
+    help += '🚨 *RESERVA DE EMERGÊNCIA*\n';
+    help += '• `/emergencia` - Ver reserva\n';
+    help += '• `/reservar 200` - Adicionar à reserva\n';
+    help += '• `/usar 100` - Usar da reserva\n\n';
+    
+    help += '📊 *RELATÓRIOS*\n';
+    help += '• `/relatorio diario` - Hoje\n';
+    help += '• `/relatorio semanal` - 7 dias\n';
+    help += '• `/relatorio mensal` - Mês atual\n\n';
+    
+    help += '🏷️ *CATEGORIAS AUTOMÁTICAS*\n';
+    help += '🍔 Alimentação • 🚗 Transporte\n';
+    help += '🛒 Mercado • 🎮 Lazer\n';
+    help += '💳 Contas • 💊 Saúde\n';
+    help += '📚 Educação • 👕 Vestuário\n\n';
+    
+    help += '━━━━━━━━━━━━━━━━━━━━━\n';
+    help += '💡 O bot identifica categorias automaticamente!\n';
+    help += 'Use `/start` para começar.';
+    
+    return help;
   }
 
+  // ============ BEM-VINDO ============
+  
   generateWelcomeMessage(userName) {
-    return '👋 *Olá, ' + userName + '!*\n\n' +
-      'Bem-vindo ao *Bot Financeiro*! 🤖💰\n\n' +
-      'Eu vou ajudar você a controlar seus gastos de forma simples e automática!\n\n' +
-      '🚀 *Para começar:*\n' +
-      '1️⃣ Defina seu saldo inicial: `/saldo 1000`\n' +
-      '2️⃣ Registre seus gastos naturalmente: "gastei 50 no mercado"\n' +
-      '3️⃣ Consulte relatórios: `/relatorio mensal`\n\n' +
-      'Digite `/ajuda` para ver todos os comandos disponíveis!';
+    let welcome = '━━━━━━━━━━━━━━━━━━━━━\n';
+    welcome += '👋 *BEM-VINDO!*\n';
+    welcome += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    welcome += 'Olá, *' + userName + '!* 😊\n\n';
+    welcome += 'Sou seu assistente financeiro pessoal! 🤖💰\n\n';
+    
+    welcome += '🚀 *PRIMEIROS PASSOS*\n\n';
+    welcome += '1️⃣ Defina seu saldo inicial:\n';
+    welcome += '   `/saldo 1000`\n\n';
+    
+    welcome += '2️⃣ Registre seus gastos naturalmente:\n';
+    welcome += '   "Gastei 50 no mercado"\n\n';
+    
+    welcome += '3️⃣ Consulte relatórios:\n';
+    welcome += '   `/relatorio mensal`\n\n';
+    
+    welcome += '💡 *DICA*\n';
+    welcome += 'Use `/ajuda` para ver todos os comandos!\n\n';
+    
+    welcome += '━━━━━━━━━━━━━━━━━━━━━\n';
+    welcome += 'Vamos começar a organizar suas finanças! 💪';
+    
+    return welcome;
+  }
+
+  // ============ TRANSAÇÕES DE POUPANÇA ============
+  
+  generateSavingsConfirmation(action, amount, user) {
+    let msg = action === 'deposit' ? '✅ *DINHEIRO GUARDADO*\n\n' : '✅ *DINHEIRO RETIRADO*\n\n';
+    
+    msg += '💵 *Valor:* ' + this.formatMoney(amount) + '\n';
+    msg += '📅 *Data:* ' + this.formatDate(new Date()) + '\n\n';
+    
+    msg += '💰 *SALDOS ATUALIZADOS*\n';
+    msg += '   Principal: ' + this.formatMoney(user.current_balance) + '\n';
+    msg += '   Poupança: *' + this.formatMoney(user.savings_balance) + '*\n';
+    
+    if (user.emergency_fund > 0) {
+      msg += '   Emergência: ' + this.formatMoney(user.emergency_fund) + '\n';
+    }
+    
+    const total = user.current_balance + user.savings_balance + user.emergency_fund;
+    msg += '   Total: ' + this.formatMoney(total);
+    
+    return msg;
+  }
+
+  // ============ TRANSAÇÕES DE EMERGÊNCIA ============
+  
+  generateEmergencyConfirmation(action, amount, user) {
+    let msg = action === 'deposit' ? '✅ *RESERVA CRIADA*\n\n' : '✅ *RESERVA UTILIZADA*\n\n';
+    
+    msg += '💵 *Valor:* ' + this.formatMoney(amount) + '\n';
+    msg += '📅 *Data:* ' + this.formatDate(new Date()) + '\n\n';
+    
+    msg += '💰 *SALDOS ATUALIZADOS*\n';
+    msg += '   Principal: ' + this.formatMoney(user.current_balance) + '\n';
+    
+    if (user.savings_balance > 0) {
+      msg += '   Poupança: ' + this.formatMoney(user.savings_balance) + '\n';
+    }
+    
+    msg += '   Emergência: *' + this.formatMoney(user.emergency_fund) + '*\n';
+    
+    const total = user.current_balance + user.savings_balance + user.emergency_fund;
+    msg += '   Total: ' + this.formatMoney(total);
+    
+    return msg;
   }
 }
 

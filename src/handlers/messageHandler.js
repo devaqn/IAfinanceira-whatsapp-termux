@@ -73,31 +73,159 @@ class MessageHandler {
   async handleCommand(command, user, message) {
     let response = '';
 
+    // ============ SALDO PRINCIPAL ============
+    
     if (command.command === 'setBalance') {
       if (command.amount && command.amount > 0) {
         this.dao.setInitialBalance(user.whatsapp_id, command.amount);
         
         const updatedUser = this.dao.getUserByWhatsAppId(user.whatsapp_id);
-        response = '✅ *Saldo inicial definido!*\n\n💰 Valor: ' + this.reports.formatMoney(command.amount) + '\n\nAgora você pode registrar seus gastos!';
-        console.log('💰 ' + user.name + ': saldo ' + command.amount);
+        response = '✅ *SALDO DEFINIDO*\n\n' +
+          '💰 Valor: ' + this.reports.formatMoney(command.amount) + '\n\n' +
+          'Agora você pode registrar seus gastos!\n' +
+          'Use `/ajuda` para ver todos os comandos.';
+        console.log('💰 ' + user.name + ': saldo inicial ' + command.amount);
       } else {
-        response = '❌ Valor inválido! Use: `/saldo 1000`';
+        response = '❌ Valor inválido!\n\nUse: `/saldo 1000`';
       }
-    } else if (command.command === 'getBalance') {
+    }
+    
+    else if (command.command === 'addBalance') {
+      if (command.amount && command.amount > 0) {
+        const success = this.dao.addBalance(user.whatsapp_id, command.amount);
+        
+        if (success) {
+          const updatedUser = this.dao.getUserByWhatsAppId(user.whatsapp_id);
+          // Resetar aviso de saldo baixo quando adicionar dinheiro
+          this.dao.setLowBalanceWarned(updatedUser.id, false);
+          
+          response = '✅ *SALDO ADICIONADO*\n\n' +
+            '💵 Valor adicionado: ' + this.reports.formatMoney(command.amount) + '\n' +
+            '💰 Novo saldo: *' + this.reports.formatMoney(updatedUser.current_balance) + '*';
+          console.log('💰 ' + user.name + ': adicionou ' + command.amount);
+        } else {
+          response = '❌ Erro ao adicionar saldo. Tente novamente.';
+        }
+      } else {
+        response = '❌ Valor inválido!\n\nUse: `/adicionar 500`';
+      }
+    }
+    
+    else if (command.command === 'getBalance') {
       const updatedUser = this.dao.getUserByWhatsAppId(user.whatsapp_id);
       response = this.reports.generateBalanceReport(updatedUser);
-    } else if (command.command === 'reportDaily') {
+    }
+    
+    // ============ POUPANÇA ============
+    
+    else if (command.command === 'getSavings') {
+      const updatedUser = this.dao.getUserByWhatsAppId(user.whatsapp_id);
+      response = '🐷 *POUPANÇA*\n\n' +
+        '💵 Saldo guardado: *' + this.reports.formatMoney(updatedUser.savings_balance) + '*\n\n' +
+        'Use `/guardar 100` para guardar dinheiro\n' +
+        'Use `/retirar 50` para retirar';
+    }
+    
+    else if (command.command === 'depositSavings') {
+      if (command.amount && command.amount > 0) {
+        const success = this.dao.addToSavings(user.id, command.amount);
+        
+        if (success) {
+          const updatedUser = this.dao.getUserById(user.id);
+          response = this.reports.generateSavingsConfirmation('deposit', command.amount, updatedUser);
+          console.log('🐷 ' + user.name + ': guardou ' + command.amount);
+        } else {
+          response = '❌ Saldo insuficiente!\n\nVocê tem: ' + this.reports.formatMoney(user.current_balance);
+        }
+      } else {
+        response = '❌ Valor inválido!\n\nUse: `/guardar 100`';
+      }
+    }
+    
+    else if (command.command === 'withdrawSavings') {
+      if (command.amount && command.amount > 0) {
+        const success = this.dao.withdrawFromSavings(user.id, command.amount);
+        
+        if (success) {
+          const updatedUser = this.dao.getUserById(user.id);
+          response = this.reports.generateSavingsConfirmation('withdraw', command.amount, updatedUser);
+          console.log('🐷 ' + user.name + ': retirou ' + command.amount);
+        } else {
+          response = '❌ Poupança insuficiente!\n\nVocê tem: ' + this.reports.formatMoney(user.savings_balance);
+        }
+      } else {
+        response = '❌ Valor inválido!\n\nUse: `/retirar 50`';
+      }
+    }
+    
+    // ============ RESERVA DE EMERGÊNCIA ============
+    
+    else if (command.command === 'getEmergency') {
+      const updatedUser = this.dao.getUserByWhatsAppId(user.whatsapp_id);
+      response = '🚨 *RESERVA DE EMERGÊNCIA*\n\n' +
+        '💵 Saldo reservado: *' + this.reports.formatMoney(updatedUser.emergency_fund) + '*\n\n' +
+        'Use `/reservar 200` para adicionar\n' +
+        'Use `/usar 100` para utilizar';
+    }
+    
+    else if (command.command === 'depositEmergency') {
+      if (command.amount && command.amount > 0) {
+        const success = this.dao.addToEmergencyFund(user.id, command.amount);
+        
+        if (success) {
+          const updatedUser = this.dao.getUserById(user.id);
+          response = this.reports.generateEmergencyConfirmation('deposit', command.amount, updatedUser);
+          console.log('🚨 ' + user.name + ': reservou ' + command.amount);
+        } else {
+          response = '❌ Saldo insuficiente!\n\nVocê tem: ' + this.reports.formatMoney(user.current_balance);
+        }
+      } else {
+        response = '❌ Valor inválido!\n\nUse: `/reservar 200`';
+      }
+    }
+    
+    else if (command.command === 'withdrawEmergency') {
+      if (command.amount && command.amount > 0) {
+        const success = this.dao.withdrawFromEmergencyFund(user.id, command.amount);
+        
+        if (success) {
+          const updatedUser = this.dao.getUserById(user.id);
+          response = this.reports.generateEmergencyConfirmation('withdraw', command.amount, updatedUser);
+          console.log('🚨 ' + user.name + ': usou reserva ' + command.amount);
+        } else {
+          response = '❌ Reserva insuficiente!\n\nVocê tem: ' + this.reports.formatMoney(user.emergency_fund);
+        }
+      } else {
+        response = '❌ Valor inválido!\n\nUse: `/usar 100`';
+      }
+    }
+    
+    // ============ RELATÓRIOS ============
+    
+    else if (command.command === 'reportDaily') {
       response = this.reports.generateDailyReport(user.id);
-    } else if (command.command === 'reportWeekly') {
+    }
+    
+    else if (command.command === 'reportWeekly') {
       response = this.reports.generateWeeklyReport(user.id);
-    } else if (command.command === 'reportMonthly') {
+    }
+    
+    else if (command.command === 'reportMonthly') {
       response = this.reports.generateMonthlyReport(user.id);
-    } else if (command.command === 'help') {
+    }
+    
+    // ============ OUTROS ============
+    
+    else if (command.command === 'help') {
       response = this.reports.generateHelpMessage();
-    } else if (command.command === 'start') {
+    }
+    
+    else if (command.command === 'start') {
       response = this.reports.generateWelcomeMessage(user.name);
-    } else {
-      response = '❓ Comando não reconhecido. Use `/ajuda`';
+    }
+    
+    else {
+      response = '❓ Comando não reconhecido.\n\nUse `/ajuda` para ver os comandos disponíveis.';
     }
 
     if (response) {
@@ -110,7 +238,7 @@ class MessageHandler {
     const chatId = info.chatId;
 
     if (!this.nlp.isValidAmount(expense.amount)) {
-      await this.whatsapp.replyMessage(message, '❌ Valor inválido! Deve ser entre R$ 0,01 e R$ 1.000.000,00');
+      await this.whatsapp.replyMessage(message, '❌ Valor inválido!\n\nDeve estar entre R$ 0,01 e R$ 1.000.000,00');
       return;
     }
 
@@ -138,17 +266,31 @@ class MessageHandler {
 
       await this.whatsapp.replyMessage(message, confirmation);
 
-      console.log('💸 ' + user.name + ': ' + this.reports.formatMoney(expense.amount) + ' - ' + expense.description);
+      console.log('💸 ' + user.name + ': ' + this.reports.formatMoney(expense.amount) + ' - ' + expense.description + ' (' + category.name + ')');
+
+      // 🔧 CORRIGIDO: Aviso de saldo baixo em 30%
+      const totalMoney = updatedUser.current_balance + updatedUser.savings_balance + updatedUser.emergency_fund;
+      const percentageRemaining = updatedUser.initial_balance > 0 
+        ? (totalMoney / updatedUser.initial_balance) * 100 
+        : 100;
 
       if (updatedUser.current_balance < 0) {
-        await this.whatsapp.sendMessage(chatId, '🚨 *ATENÇÃO!* Você está no vermelho!');
-      } else if (updatedUser.current_balance < updatedUser.initial_balance * 0.1) {
-        await this.whatsapp.sendMessage(chatId, '⚠️ *AVISO:* Menos de 10% do saldo restante!');
+        await this.whatsapp.sendMessage(chatId, '🚨 *ATENÇÃO!*\n\nSeu saldo está negativo!\nVocê está gastando mais do que tem.');
+      } 
+      else if (percentageRemaining <= 30 && !updatedUser.low_balance_warned) {
+        // Avisar apenas uma vez quando atingir 30%
+        this.dao.setLowBalanceWarned(updatedUser.id, true);
+        await this.whatsapp.sendMessage(chatId, 
+          '⚠️ *AVISO DE SALDO BAIXO*\n\n' +
+          'Você já gastou 70% do seu dinheiro!\n' +
+          'Restam apenas ' + percentageRemaining.toFixed(0) + '% do total.\n\n' +
+          '💡 *Dica:* Considere reduzir gastos ou adicionar mais saldo.'
+        );
       }
 
     } catch (error) {
       console.error('❌ Erro ao registrar gasto:', error);
-      await this.whatsapp.replyMessage(message, '❌ Erro ao registrar gasto. Tente novamente.');
+      await this.whatsapp.replyMessage(message, '❌ Erro ao registrar gasto.\n\nTente novamente ou use `/ajuda`.');
     }
   }
 }

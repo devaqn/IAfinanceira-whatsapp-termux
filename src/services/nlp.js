@@ -9,11 +9,27 @@ class NLPProcessor {
     ];
 
     this.commandPatterns = {
+      // Saldo principal
       setBalance: /^\/saldo\s+(\d+(?:[.,]\d{1,2})?)/i,
       getBalance: /^\/saldo\s*$/i,
+      addBalance: /^\/adicionar\s+(\d+(?:[.,]\d{1,2})?)/i,
+      
+      // Poupança
+      getSavings: /^\/poupan[cç]a\s*$/i,
+      depositSavings: /^\/guardar\s+(\d+(?:[.,]\d{1,2})?)/i,
+      withdrawSavings: /^\/retirar\s+(\d+(?:[.,]\d{1,2})?)/i,
+      
+      // Reserva de emergência
+      getEmergency: /^\/emerg[eê]ncia\s*$/i,
+      depositEmergency: /^\/reservar\s+(\d+(?:[.,]\d{1,2})?)/i,
+      withdrawEmergency: /^\/usar\s+(\d+(?:[.,]\d{1,2})?)/i,
+      
+      // Relatórios
       reportDaily: /^\/relatorio\s+(?:hoje|diário|diario|day|daily)/i,
       reportWeekly: /^\/relatorio\s+(?:semana|semanal|week|weekly)/i,
       reportMonthly: /^\/relatorio\s+(?:mês|mes|mensal|month|monthly)/i,
+      
+      // Outros
       help: /^\/ajuda|^\/help|^\/comandos/i,
       start: /^\/start|^\/começar|^\/comecar/i
     };
@@ -58,7 +74,8 @@ class NLPProcessor {
       if (match) {
         const result = { command: command };
         
-        if (command === 'setBalance' && match[1]) {
+        // Comandos com valor
+        if (match[1]) {
           result.amount = parseFloat(match[1].replace(',', '.'));
         }
         
@@ -74,7 +91,8 @@ class NLPProcessor {
     
     const expenseKeywords = [
       'gastei', 'paguei', 'comprei', 'saiu', 'foi', 'custou', 
-      'deu', 'comprando', 'no mercado', 'na farmácia'
+      'deu', 'comprando', 'no mercado', 'na farmácia', 'almocei',
+      'jantei', 'lanchou', 'tomei'
     ];
     
     const textLower = text.toLowerCase();
