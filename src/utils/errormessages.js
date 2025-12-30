@@ -1,4 +1,3 @@
-cat > src/utils/errorMessages.js << 'ENDOFFILE'
 class ErrorMessages {
   static COMMAND_NOT_FOUND() {
     return '❌ *Comando não reconhecido*\n\nDigite `/ajuda` para ver os comandos disponíveis';
@@ -37,4 +36,3 @@ class ErrorMessages {
 }
 
 module.exports = ErrorMessages;
-ENDOFFILE
