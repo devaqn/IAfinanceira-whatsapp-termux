@@ -61,6 +61,8 @@ class MessageHandler {
         await this.handleCommand(processed, user, message);
       } else if (processed.type === 'expense') {
         await this.handleExpense(processed, user, message);
+      } else if (processed.type === 'installment') {
+        await this.handleInstallment(processed, user, message);
       }
 
       await this.whatsapp.sendPresence(chatId, 'available');
@@ -80,8 +82,11 @@ class MessageHandler {
         this.dao.setInitialBalance(user.whatsapp_id, command.amount);
         
         const updatedUser = this.dao.getUserByWhatsAppId(user.whatsapp_id);
-        response = '✅ *SALDO DEFINIDO*\n\n' +
-          '💰 Valor: ' + this.reports.formatMoney(command.amount) + '\n\n' +
+        
+        // 🔧 CORRIGIDO: Confirmação com data/hora
+        response = '✅ *SALDO DEFINIDO COM SUCESSO*\n\n' +
+          '💰 *Valor:* ' + this.reports.formatMoney(command.amount) + '\n' +
+          '🕒 *Data/Hora:* ' + this.reports.formatDate(new Date()) + '\n\n' +
           'Agora você pode registrar seus gastos!\n' +
           'Use `/ajuda` para ver todos os comandos.';
         console.log('💰 ' + user.name + ': saldo inicial ' + command.amount);
@@ -99,9 +104,23 @@ class MessageHandler {
           // Resetar aviso de saldo baixo quando adicionar dinheiro
           this.dao.setLowBalanceWarned(updatedUser.id, false);
           
-          response = '✅ *SALDO ADICIONADO*\n\n' +
-            '💵 Valor adicionado: ' + this.reports.formatMoney(command.amount) + '\n' +
-            '💰 Novo saldo: *' + this.reports.formatMoney(updatedUser.current_balance) + '*';
+          // 🔧 CORRIGIDO: Confirmação com data/hora
+          response = '✅ *SALDO ADICIONADO COM SUCESSO*\n\n' +
+            '💵 *Valor adicionado:* ' + this.reports.formatMoney(command.amount) + '\n' +
+            '🕒 *Data/Hora:* ' + this.reports.formatDate(new Date()) + '\n\n' +
+            '💰 *NOVO SALDO*\n' +
+            '   Principal: *' + this.reports.formatMoney(updatedUser.current_balance) + '*\n';
+          
+          if (updatedUser.savings_balance > 0) {
+            response += '   Poupança: ' + this.reports.formatMoney(updatedUser.savings_balance) + '\n';
+          }
+          if (updatedUser.emergency_fund > 0) {
+            response += '   Emergência: ' + this.reports.formatMoney(updatedUser.emergency_fund) + '\n';
+          }
+          
+          const total = updatedUser.current_balance + updatedUser.savings_balance + updatedUser.emergency_fund;
+          response += '   Total: ' + this.reports.formatMoney(total);
+          
           console.log('💰 ' + user.name + ': adicionou ' + command.amount);
         } else {
           response = '❌ Erro ao adicionar saldo. Tente novamente.';
@@ -214,6 +233,49 @@ class MessageHandler {
       response = this.reports.generateMonthlyReport(user.id);
     }
     
+    // ============ 🆕 PARCELAMENTOS ============
+    
+    else if (command.command === 'getInstallments') {
+      response = this.reports.generateInstallmentsList(user.id);
+    }
+    
+    else if (command.command === 'payInstallment') {
+      if (!command.description) {
+        response = '❌ Especifique qual parcela pagar!\n\nUse: `/pagar celular`';
+      } else {
+        const installment = this.dao.findInstallmentByDescription(user.id, command.description);
+        
+        if (!installment) {
+          response = '❌ Parcelamento não encontrado!\n\nUse `/parcelamentos` para ver suas compras.';
+        } else {
+          const nextPayment = this.dao.getNextPendingPayment(installment.id);
+          
+          if (!nextPayment) {
+            response = '✅ Este parcelamento já foi totalmente pago!';
+          } else {
+            const success = this.dao.payInstallment(nextPayment.id, user.id);
+            
+            if (success) {
+              const updatedUser = this.dao.getUserById(user.id);
+              const updatedPayment = this.dao.getInstallmentPayments(installment.id)
+                .find(p => p.id === nextPayment.id);
+              
+              response = this.reports.generatePaymentConfirmation(installment, updatedPayment, updatedUser);
+              console.log('💳 ' + user.name + ': pagou parcela ' + nextPayment.installment_number + '/' + installment.total_installments);
+            } else {
+              response = '❌ Saldo insuficiente!\n\nParcela: ' + this.reports.formatMoney(nextPayment.amount) + '\nVocê tem: ' + this.reports.formatMoney(user.current_balance);
+            }
+          }
+        }
+      }
+    }
+    
+    // ============ 🆕 LEMBRETES ============
+    
+    else if (command.command === 'getReminders' || command.command === 'getDuePayments') {
+      response = this.reports.generateRemindersList(user.id);
+    }
+    
     // ============ OUTROS ============
     
     else if (command.command === 'help') {
@@ -268,7 +330,7 @@ class MessageHandler {
 
       console.log('💸 ' + user.name + ': ' + this.reports.formatMoney(expense.amount) + ' - ' + expense.description + ' (' + category.name + ')');
 
-      // 🔧 CORRIGIDO: Aviso de saldo baixo em 30%
+      // 🔧 CORRIGIDO: Aviso de saldo baixo em 30% - APENAS UMA VEZ
       const totalMoney = updatedUser.current_balance + updatedUser.savings_balance + updatedUser.emergency_fund;
       const percentageRemaining = updatedUser.initial_balance > 0 
         ? (totalMoney / updatedUser.initial_balance) * 100 
@@ -278,7 +340,7 @@ class MessageHandler {
         await this.whatsapp.sendMessage(chatId, '🚨 *ATENÇÃO!*\n\nSeu saldo está negativo!\nVocê está gastando mais do que tem.');
       } 
       else if (percentageRemaining <= 30 && !updatedUser.low_balance_warned) {
-        // Avisar apenas uma vez quando atingir 30%
+        // 🔧 CORRIGIDO: Avisar apenas uma vez quando atingir 30%
         this.dao.setLowBalanceWarned(updatedUser.id, true);
         await this.whatsapp.sendMessage(chatId, 
           '⚠️ *AVISO DE SALDO BAIXO*\n\n' +
@@ -291,6 +353,51 @@ class MessageHandler {
     } catch (error) {
       console.error('❌ Erro ao registrar gasto:', error);
       await this.whatsapp.replyMessage(message, '❌ Erro ao registrar gasto.\n\nTente novamente ou use `/ajuda`.');
+    }
+  }
+
+  async handleInstallment(installment, user, message) {
+    const info = this.whatsapp.getSenderInfo(message);
+    const chatId = info.chatId;
+
+    if (!this.nlp.isValidAmount(installment.totalAmount)) {
+      await this.whatsapp.replyMessage(message, '❌ Valor inválido!');
+      return;
+    }
+
+    if (user.initial_balance === 0) {
+      await this.whatsapp.replyMessage(message, '⚠️ Defina seu saldo inicial primeiro!\n\nUse: `/saldo 1000`');
+      return;
+    }
+
+    try {
+      const categoryId = this.dao.identifyCategory(installment.description);
+      const category = this.dao.getCategoryById(categoryId);
+
+      // 🆕 Calcular primeira data de vencimento (próximo mês, dia 5)
+      const firstDueDate = new Date();
+      firstDueDate.setMonth(firstDueDate.getMonth() + 1);
+      firstDueDate.setDate(5);
+
+      const savedInstallment = this.dao.createInstallment({
+        userId: user.id,
+        description: installment.description,
+        totalAmount: installment.totalAmount,
+        installmentAmount: installment.installmentAmount,
+        totalInstallments: installment.installments,
+        categoryId: categoryId,
+        chatId: chatId,
+        firstDueDate: firstDueDate // 🆕 Adicionar data
+      });
+
+      const confirmation = this.reports.generateInstallmentConfirmation(savedInstallment, category);
+      await this.whatsapp.replyMessage(message, confirmation);
+
+      console.log('📦 ' + user.name + ': parcelou ' + this.reports.formatMoney(installment.totalAmount) + ' em ' + installment.installments + 'x - ' + installment.description);
+
+    } catch (error) {
+      console.error('❌ Erro ao registrar parcelamento:', error);
+      await this.whatsapp.replyMessage(message, '❌ Erro ao registrar parcelamento.\n\nTente novamente ou use `/ajuda`.');
     }
   }
 }

@@ -50,6 +50,47 @@ async function main() {
     console.log('✅ WhatsApp service inicializado');
     console.log('✅ Message handler inicializado\n');
 
+    // ============ 🆕 SISTEMA DE LEMBRETES AUTOMÁTICOS ============
+
+    async function checkReminders() {
+      try {
+        // Verificar parcelas vencendo hoje
+        const dueToday = dao.getDueTodayPayments();
+        
+        for (const payment of dueToday) {
+          const message = messageHandler.reports.generateReminderMessage(payment);
+          await whatsapp.sendMessage(payment.chat_id, message);
+          dao.markAsReminded(payment.id);
+          console.log('🔔 Lembrete enviado: ' + payment.description + ' - Parcela ' + payment.installment_number);
+        }
+        
+        // Verificar parcelas vencidas (apenas 1x por dia)
+        const overdue = dao.getOverduePayments();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        for (const payment of overdue) {
+          const lastReminded = payment.reminded_at ? new Date(payment.reminded_at) : null;
+          
+          // Enviar lembrete apenas se não foi enviado hoje
+          if (!lastReminded || lastReminded < today) {
+            const message = messageHandler.reports.generateReminderMessage(payment);
+            await whatsapp.sendMessage(payment.chat_id, message);
+            dao.markAsReminded(payment.id);
+            console.log('❌ Lembrete vencida: ' + payment.description + ' - Parcela ' + payment.installment_number);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro ao verificar lembretes:', error.message);
+      }
+    }
+
+    // Verificar lembretes a cada 1 hora
+    const reminderInterval = setInterval(checkReminders, 60 * 60 * 1000);
+
+    // Verificar na inicialização (após 1 minuto)
+    setTimeout(checkReminders, 60 * 1000);
+
     console.log('📱 Passo 3/3: Conectando ao WhatsApp\n');
     
     await whatsapp.connect(async (message) => {
@@ -58,6 +99,7 @@ async function main() {
 
     process.on('SIGINT', async () => {
       console.log('\n\n🛑 Encerrando bot...');
+      clearInterval(reminderInterval);
       await whatsapp.disconnect();
       dao.close();
       console.log('👋 Bot encerrado\n');
@@ -66,6 +108,7 @@ async function main() {
 
     process.on('SIGTERM', async () => {
       console.log('\n\n🛑 Encerrando bot...');
+      clearInterval(reminderInterval);
       await whatsapp.disconnect();
       dao.close();
       console.log('👋 Bot encerrado\n');

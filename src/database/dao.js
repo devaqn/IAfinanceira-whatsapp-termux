@@ -114,7 +114,6 @@ class DAO {
       [newCurrent, newSavings, userId]
     );
     
-    // Registrar transação
     const categoryId = this.getCategoryByName('Poupança').id;
     this.createTransaction({
       userId: userId,
@@ -287,7 +286,6 @@ class DAO {
     const { userId, amount, description, categoryId, transactionType, chatId, messageId } = transaction;
     const type = transactionType || 'expense';
     
-    // Se coluna transaction_type não existe, usar query antiga
     if (!this.hasTransactionType) {
       this.db.run(
         'INSERT INTO expenses (user_id, amount, description, category_id, chat_id, message_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -310,7 +308,6 @@ class DAO {
   createExpense(expense) {
     const { userId, amount, description, categoryId, chatId, messageId } = expense;
     
-    // Se coluna transaction_type não existe, usar query antiga
     if (!this.hasTransactionType) {
       this.db.run(
         'INSERT INTO expenses (user_id, amount, description, category_id, chat_id, message_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -365,7 +362,6 @@ class DAO {
       params.push(filters.categoryId);
     }
     
-    // Só filtrar por transaction_type se a coluna existir
     if (filters.transactionType && this.hasTransactionType) {
       query += ' AND e.transaction_type = ?';
       params.push(filters.transactionType);
@@ -391,7 +387,6 @@ class DAO {
         AND e.date <= ?
     `;
     
-    // Só filtrar por transaction_type se a coluna existir
     if (this.hasTransactionType) {
       query += " AND e.transaction_type = 'expense'";
     }
@@ -417,7 +412,6 @@ class DAO {
       WHERE user_id = ?
     `;
     
-    // Só filtrar por transaction_type se a coluna existir
     if (this.hasTransactionType) {
       query += " AND transaction_type = 'expense'";
     }
@@ -430,6 +424,141 @@ class DAO {
       max_expense: 0, 
       min_expense: 0 
     };
+  }
+
+  // ============ 🆕 PARCELAMENTOS ============
+  
+  createInstallment(data) {
+    const { userId, description, totalAmount, installmentAmount, totalInstallments, categoryId, chatId, firstDueDate } = data;
+    
+    // Criar registro principal de parcelamento
+    this.db.run(
+      'INSERT INTO installments (user_id, description, total_amount, installment_amount, total_installments, category_id, chat_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [userId, description, totalAmount, installmentAmount, totalInstallments, categoryId, chatId]
+    );
+    
+    const result = this.db.exec('SELECT * FROM installments WHERE rowid = last_insert_rowid()');
+    const installment = result[0] ? this.rowToObject(result[0]) : null;
+    
+    if (installment) {
+      // 🆕 Calcular datas de vencimento
+      const dueDate = firstDueDate ? new Date(firstDueDate) : new Date();
+      
+      // Criar todas as parcelas com data de vencimento
+      for (let i = 1; i <= totalInstallments; i++) {
+        const currentDueDate = new Date(dueDate);
+        currentDueDate.setMonth(currentDueDate.getMonth() + (i - 1));
+        
+        this.db.run(
+          'INSERT INTO installment_payments (installment_id, installment_number, amount, status, due_date) VALUES (?, ?, ?, ?, ?)',
+          [installment.id, i, installmentAmount, 'pending', currentDueDate.toISOString()]
+        );
+      }
+    }
+    
+    this.save();
+    return installment;
+  }
+
+  getInstallmentsByUser(userId) {
+    const query = `
+      SELECT 
+        i.*,
+        c.name as category_name,
+        c.emoji as category_emoji,
+        (SELECT COUNT(*) FROM installment_payments WHERE installment_id = i.id AND status = 'paid') as paid_count,
+        (SELECT COUNT(*) FROM installment_payments WHERE installment_id = i.id AND status = 'pending') as pending_count
+      FROM installments i
+      JOIN categories c ON i.category_id = c.id
+      WHERE i.user_id = ?
+      ORDER BY i.created_at DESC
+    `;
+    
+    const result = this.db.exec(query, [userId]);
+    return result[0] ? this.rowsToObjects(result[0]) : [];
+  }
+
+  getInstallmentById(installmentId) {
+    const query = `
+      SELECT 
+        i.*,
+        c.name as category_name,
+        c.emoji as category_emoji
+      FROM installments i
+      JOIN categories c ON i.category_id = c.id
+      WHERE i.id = ?
+    `;
+    
+    const result = this.db.exec(query, [installmentId]);
+    return result[0] ? this.rowToObject(result[0]) : null;
+  }
+
+  getInstallmentPayments(installmentId) {
+    const result = this.db.exec(
+      'SELECT * FROM installment_payments WHERE installment_id = ? ORDER BY installment_number',
+      [installmentId]
+    );
+    return result[0] ? this.rowsToObjects(result[0]) : [];
+  }
+
+  getNextPendingPayment(installmentId) {
+    const result = this.db.exec(
+      'SELECT * FROM installment_payments WHERE installment_id = ? AND status = ? ORDER BY installment_number LIMIT 1',
+      [installmentId, 'pending']
+    );
+    return result[0] ? this.rowToObject(result[0]) : null;
+  }
+
+  payInstallment(paymentId, userId) {
+    const payment = this.db.exec('SELECT * FROM installment_payments WHERE id = ?', [paymentId]);
+    if (!payment[0]) return false;
+    
+    const paymentData = this.rowToObject(payment[0]);
+    const user = this.getUserById(userId);
+    
+    if (!user || user.current_balance < paymentData.amount) return false;
+    
+    // Marcar como paga
+    this.db.run(
+      'UPDATE installment_payments SET status = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?',
+      ['paid', paymentId]
+    );
+    
+    // Descontar do saldo
+    const newBalance = parseFloat((user.current_balance - paymentData.amount).toFixed(2));
+    this.updateBalance(userId, newBalance);
+    
+    // Registrar como despesa
+    const installment = this.db.exec('SELECT * FROM installments WHERE id = ?', [paymentData.installment_id]);
+    if (installment[0]) {
+      const inst = this.rowToObject(installment[0]);
+      const description = inst.description + ' (parcela ' + paymentData.installment_number + '/' + inst.total_installments + ')';
+      
+      this.createExpense({
+        userId: userId,
+        amount: paymentData.amount,
+        description: description,
+        categoryId: inst.category_id,
+        chatId: inst.chat_id,
+        messageId: null
+      });
+    }
+    
+    this.save();
+    return true;
+  }
+
+  findInstallmentByDescription(userId, partialDescription) {
+    const installments = this.getInstallmentsByUser(userId);
+    const searchLower = partialDescription.toLowerCase().trim();
+    
+    for (const inst of installments) {
+      if (inst.description.toLowerCase().includes(searchLower)) {
+        return inst;
+      }
+    }
+    
+    return null;
   }
 
   // ============ GRUPOS ============
@@ -452,7 +581,7 @@ class DAO {
       );
       this.save();
     } catch (e) {
-      // Coluna não existe ainda, tudo bem
+      // Coluna não existe ainda
     }
   }
 
@@ -476,6 +605,95 @@ class DAO {
       objects.push(obj);
     }
     return objects;
+  }
+
+  // ============ 🆕 LEMBRETES E VENCIMENTOS ============
+
+  getDueTodayPayments() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const query = `
+      SELECT 
+        ip.*,
+        i.description,
+        i.user_id,
+        i.chat_id,
+        i.total_installments,
+        c.emoji
+      FROM installment_payments ip
+      JOIN installments i ON ip.installment_id = i.id
+      JOIN categories c ON i.category_id = c.id
+      WHERE ip.status = 'pending'
+        AND ip.due_date >= ?
+        AND ip.due_date < ?
+        AND (ip.reminded_at IS NULL OR date(ip.reminded_at) < date(?))
+      ORDER BY ip.due_date
+    `;
+    
+    const result = this.db.exec(query, [today.toISOString(), tomorrow.toISOString(), today.toISOString()]);
+    return result[0] ? this.rowsToObjects(result[0]) : [];
+  }
+
+  getOverduePayments() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const query = `
+      SELECT 
+        ip.*,
+        i.description,
+        i.user_id,
+        i.chat_id,
+        i.total_installments,
+        c.emoji
+      FROM installment_payments ip
+      JOIN installments i ON ip.installment_id = i.id
+      JOIN categories c ON i.category_id = c.id
+      WHERE ip.status = 'pending'
+        AND ip.due_date < ?
+      ORDER BY ip.due_date
+    `;
+    
+    const result = this.db.exec(query, [today.toISOString()]);
+    return result[0] ? this.rowsToObjects(result[0]) : [];
+  }
+
+  getPendingPaymentsByUser(userId) {
+    const query = `
+      SELECT 
+        ip.*,
+        i.description,
+        i.total_installments,
+        c.emoji
+      FROM installment_payments ip
+      JOIN installments i ON ip.installment_id = i.id
+      JOIN categories c ON i.category_id = c.id
+      WHERE i.user_id = ?
+        AND ip.status = 'pending'
+      ORDER BY ip.due_date
+    `;
+    
+    const result = this.db.exec(query, [userId]);
+    return result[0] ? this.rowsToObjects(result[0]) : [];
+  }
+
+  markAsReminded(paymentId) {
+    this.db.run(
+      'UPDATE installment_payments SET reminded_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [paymentId]
+    );
+    this.save();
+  }
+
+  updateDueDate(paymentId, newDueDate) {
+    this.db.run(
+      'UPDATE installment_payments SET due_date = ? WHERE id = ?',
+      [newDueDate.toISOString(), paymentId]
+    );
+    this.save();
   }
 
   close() {

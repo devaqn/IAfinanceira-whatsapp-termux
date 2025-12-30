@@ -22,9 +22,9 @@ class DatabaseSchema {
   }
 
   initialize() {
-    console.log('🗄️  Inicializando banco de dados...');
+    console.log('🗄️ Inicializando banco de dados...');
 
-    // Tabela de usuários (estrutura básica)
+    // Tabelas existentes (mantidas)
     this.db.run(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +37,6 @@ class DatabaseSchema {
       )
     `);
 
-    // Tabela de categorias
     this.db.run(`
       CREATE TABLE IF NOT EXISTS categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,7 +47,6 @@ class DatabaseSchema {
       )
     `);
 
-    // Tabela de despesas (estrutura básica)
     this.db.run(`
       CREATE TABLE IF NOT EXISTS expenses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +63,6 @@ class DatabaseSchema {
       )
     `);
 
-    // Tabela de grupos
     this.db.run(`
       CREATE TABLE IF NOT EXISTS groups (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,22 +73,51 @@ class DatabaseSchema {
       )
     `);
 
-    // Índices básicos
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS installments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        total_amount REAL NOT NULL,
+        installment_amount REAL NOT NULL,
+        total_installments INTEGER NOT NULL,
+        category_id INTEGER NOT NULL,
+        chat_id TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+        FOREIGN KEY (category_id) REFERENCES categories (id)
+      )
+    `);
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS installment_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        installment_id INTEGER NOT NULL,
+        installment_number INTEGER NOT NULL,
+        amount REAL NOT NULL,
+        status TEXT DEFAULT 'pending',
+        paid_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (installment_id) REFERENCES installments (id) ON DELETE CASCADE
+      )
+    `);
+
+    // Índices
     try {
       this.db.run('CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id)');
       this.db.run('CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date)');
       this.db.run('CREATE INDEX IF NOT EXISTS idx_expenses_category_id ON expenses(category_id)');
       this.db.run('CREATE INDEX IF NOT EXISTS idx_users_whatsapp_id ON users(whatsapp_id)');
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_installments_user_id ON installments(user_id)');
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_installment_payments_installment_id ON installment_payments(installment_id)');
+      this.db.run('CREATE INDEX IF NOT EXISTS idx_installment_payments_status ON installment_payments(status)');
     } catch (e) {
-      // Índices já existem, tudo bem
+      // Índices já existem
     }
 
     console.log('✅ Estrutura básica criada!');
     
-    // MIGRAR antes de inserir categorias
     this.migrateDatabase();
-    
-    // Inserir categorias DEPOIS da migração
     this.insertDefaultCategories();
     
     this.save();
@@ -102,7 +128,7 @@ class DatabaseSchema {
     try {
       console.log('🔄 Verificando migração...');
       
-      // === MIGRAÇÃO: USERS ===
+      // MIGRAÇÃO: USERS
       const userColumns = this.db.exec("PRAGMA table_info(users)");
       if (userColumns[0]) {
         const columnNames = userColumns[0].values.map(row => row[1]);
@@ -123,7 +149,7 @@ class DatabaseSchema {
         }
       }
 
-      // === MIGRAÇÃO: EXPENSES ===
+      // MIGRAÇÃO: EXPENSES
       const expenseColumns = this.db.exec("PRAGMA table_info(expenses)");
       if (expenseColumns[0]) {
         const columnNames = expenseColumns[0].values.map(row => row[1]);
@@ -132,26 +158,43 @@ class DatabaseSchema {
           console.log('   → Adicionando transaction_type');
           this.db.run("ALTER TABLE expenses ADD COLUMN transaction_type TEXT DEFAULT 'expense'");
           
-          // Criar índice DEPOIS de adicionar a coluna
           try {
             this.db.run('CREATE INDEX IF NOT EXISTS idx_expenses_type ON expenses(transaction_type)');
-            console.log('   → Índice criado');
-          } catch (e) {
-            // Índice já existe
-          }
+          } catch (e) {}
         }
+      }
+
+      // 🆕 MIGRAÇÃO: INSTALLMENT_PAYMENTS (VENCIMENTO E LEMBRETE)
+      const paymentColumns = this.db.exec("PRAGMA table_info(installment_payments)");
+      if (paymentColumns[0]) {
+        const columnNames = paymentColumns[0].values.map(row => row[1]);
+        
+        if (!columnNames.includes('due_date')) {
+          console.log('   → Adicionando due_date (vencimento)');
+          this.db.run('ALTER TABLE installment_payments ADD COLUMN due_date DATETIME');
+        }
+        
+        if (!columnNames.includes('reminded_at')) {
+          console.log('   → Adicionando reminded_at (último lembrete)');
+          this.db.run('ALTER TABLE installment_payments ADD COLUMN reminded_at DATETIME');
+        }
+        
+        // Criar índice para buscas de vencimento
+        try {
+          this.db.run('CREATE INDEX IF NOT EXISTS idx_installment_payments_due_date ON installment_payments(due_date)');
+          console.log('   → Índice de vencimento criado');
+        } catch (e) {}
       }
 
       console.log('✅ Migração concluída!');
       this.save();
     } catch (error) {
-      console.log('⚠️  Aviso: ' + error.message);
+      console.log('⚠️ Aviso: ' + error.message);
     }
   }
 
   insertDefaultCategories() {
     try {
-      // Verificar se já existem categorias
       const check = this.db.exec('SELECT COUNT(*) as count FROM categories');
       const count = check[0] ? check[0].values[0][0] : 0;
       
@@ -160,7 +203,6 @@ class DatabaseSchema {
         return;
       }
 
-      // Categorias MELHORADAS
       const categories = [
         { 
           name: 'Alimentação', 
@@ -231,7 +273,7 @@ class DatabaseSchema {
       console.log('✅ ' + inserted + ' categorias inseridas!');
       this.save();
     } catch (error) {
-      console.log('⚠️  Erro ao inserir categorias: ' + error.message);
+      console.log('⚠️ Erro ao inserir categorias: ' + error.message);
     }
   }
 

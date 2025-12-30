@@ -375,6 +375,16 @@ class ReportGenerator {
     help += '• `/reservar 200` - Adicionar à reserva\n';
     help += '• `/usar 100` - Usar da reserva\n\n';
     
+    help += '📦 *PARCELAMENTOS*\n';
+    help += '• "comprei celular por 1200 em 12x"\n';
+    help += '• `/parcelamentos` - Ver todas as compras parceladas\n';
+    help += '• `/pagar celular` - Pagar próxima parcela\n\n';
+    
+    help += '🔔 *LEMBRETES*\n';
+    help += '• `/lembretes` ou `/lembrar` - Ver lembretes\n';
+    help += '• `/vencidas` ou `/pendentes` - Ver parcelas atrasadas\n';
+    help += '_⚠️ Lembretes só funcionam com o bot ligado_\n\n';
+    
     help += '📊 *RELATÓRIOS*\n';
     help += '• `/relatorio diario` - Hoje\n';
     help += '• `/relatorio semanal` - 7 dias\n';
@@ -463,6 +473,171 @@ class ReportGenerator {
     
     const total = user.current_balance + user.savings_balance + user.emergency_fund;
     msg += '   Total: ' + this.formatMoney(total);
+    
+    return msg;
+  }
+
+  // ============ 🆕 RELATÓRIOS DE PARCELAMENTO ============
+
+  generateInstallmentsList(userId) {
+    const installments = this.dao.getInstallmentsByUser(userId);
+    
+    if (installments.length === 0) {
+      return '📦 *PARCELAMENTOS*\n\nVocê não tem compras parceladas.\n\nUse: "comprei celular por 1200 em 12x"';
+    }
+    
+    let report = '┏━━━━━━━━━━━━━━━━━━━━━\n';
+    report += '📦 *SUAS COMPRAS PARCELADAS*\n';
+    report += '┗━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    for (let i = 0; i < installments.length; i++) {
+      const inst = installments[i];
+      const pending = inst.pending_count;
+      const paid = inst.paid_count;
+      const total = inst.total_installments;
+      const remaining = parseFloat((pending * inst.installment_amount).toFixed(2));
+      
+      report += (i + 1) + '. ' + inst.category_emoji + ' *' + inst.description + '*\n';
+      report += '   💰 Total: ' + this.formatMoney(inst.total_amount) + '\n';
+      report += '   📊 Parcelas: ' + paid + '/' + total + ' pagas\n';
+      report += '   💵 Parcela: ' + this.formatMoney(inst.installment_amount) + '\n';
+      report += '   ⏳ Restante: ' + this.formatMoney(remaining) + '\n';
+      report += '   📅 Criado: ' + this.formatDate(inst.created_at) + '\n\n';
+    }
+    
+    report += '💡 Use `/pagar celular` para pagar a próxima parcela';
+    
+    return report;
+  }
+
+  generateInstallmentConfirmation(installment, category) {
+    let report = '✅ *COMPRA PARCELADA REGISTRADA*\n\n';
+    
+    report += category.emoji + ' *Produto:* ' + installment.description + '\n';
+    report += '💰 *Valor Total:* ' + this.formatMoney(installment.total_amount) + '\n';
+    report += '📊 *Parcelas:* ' + installment.total_installments + 'x de ' + this.formatMoney(installment.installment_amount) + '\n';
+    report += '🕒 *Data:* ' + this.formatDate(installment.created_at) + '\n\n';
+    
+    report += '💡 *Como pagar parcelas:*\n';
+    report += '   `/pagar ' + installment.description + '`\n';
+    report += '   ou `/parcelamentos` para ver todas';
+    
+    return report;
+  }
+
+  generatePaymentConfirmation(installment, payment, user) {
+    let report = '✅ *PARCELA PAGA*\n\n';
+    
+    report += '📦 *Produto:* ' + installment.description + '\n';
+    report += '📊 *Parcela:* ' + payment.installment_number + '/' + installment.total_installments + '\n';
+    report += '💵 *Valor:* ' + this.formatMoney(payment.amount) + '\n';
+    report += '🕒 *Data/Hora:* ' + this.formatDate(payment.paid_at) + '\n\n';
+    
+    const paid = payment.installment_number;
+    const remaining = installment.total_installments - paid;
+    
+    if (remaining > 0) {
+      report += '⏳ *Restam ' + remaining + ' parcelas*\n';
+      report += '   ' + remaining + 'x de ' + this.formatMoney(installment.installment_amount) + '\n\n';
+    } else {
+      report += '🎉 *PARABÉNS! TOTALMENTE PAGO!*\n\n';
+    }
+    
+    report += '💰 *Saldo Atualizado:* ' + this.formatMoney(user.current_balance);
+    
+    return report;
+  }
+
+  // ============ 🆕 LEMBRETES DE VENCIMENTO ============
+
+  getBrazilDateOnly(date) {
+    const d = this.getBrazilDate(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  generateRemindersList(userId) {
+    const pending = this.dao.getPendingPaymentsByUser(userId);
+    
+    if (pending.length === 0) {
+      return '✅ *PARCELAS EM DIA*\n\nVocê não tem parcelas pendentes!';
+    }
+    
+    const today = this.getBrazilDateOnly(new Date());
+    let overdue = [];
+    let upcoming = [];
+    
+    for (const p of pending) {
+      const dueDate = this.getBrazilDateOnly(p.due_date);
+      if (dueDate < today) {
+        overdue.push(p);
+      } else {
+        upcoming.push(p);
+      }
+    }
+    
+    let report = '┏━━━━━━━━━━━━━━━━━━━━━\n';
+    report += '📅 *LEMBRETES DE PARCELAS*\n';
+    report += '┗━━━━━━━━━━━━━━━━━━━━━\n\n';
+    
+    if (overdue.length > 0) {
+      report += '❌ *VENCIDAS (' + overdue.length + ')*\n\n';
+      for (const p of overdue) {
+        const daysLate = Math.floor((today - this.getBrazilDateOnly(p.due_date)) / (1000 * 60 * 60 * 24));
+        report += '   • ' + p.emoji + ' *' + p.description + '*\n';
+        report += '     Parcela: ' + p.installment_number + '/' + p.total_installments + '\n';
+        report += '     Valor: ' + this.formatMoney(p.amount) + '\n';
+        report += '     Venceu: ' + this.formatDateShort(p.due_date) + '\n';
+        report += '     ⚠️ Atrasada há ' + daysLate + ' dia(s)\n\n';
+      }
+    }
+    
+    if (upcoming.length > 0) {
+      report += '⏳ *PRÓXIMAS (' + upcoming.length + ')*\n\n';
+      const limit = Math.min(upcoming.length, 5);
+      for (let i = 0; i < limit; i++) {
+        const p = upcoming[i];
+        const daysUntil = Math.ceil((this.getBrazilDateOnly(p.due_date) - today) / (1000 * 60 * 60 * 24));
+        report += '   • ' + p.emoji + ' *' + p.description + '*\n';
+        report += '     Parcela: ' + p.installment_number + '/' + p.total_installments + '\n';
+        report += '     Valor: ' + this.formatMoney(p.amount) + '\n';
+        report += '     Vence: ' + this.formatDateShort(p.due_date) + '\n';
+        
+        if (daysUntil === 0) {
+          report += '     🔔 Vence HOJE!\n\n';
+        } else if (daysUntil === 1) {
+          report += '     ⏰ Vence AMANHÃ!\n\n';
+        } else {
+          report += '     📅 Faltam ' + daysUntil + ' dias\n\n';
+        }
+      }
+    }
+    
+    report += '💡 Use `/pagar [nome]` para pagar uma parcela';
+    
+    return report;
+  }
+
+  generateReminderMessage(payment) {
+    const today = this.getBrazilDateOnly(new Date());
+    const dueDate = this.getBrazilDateOnly(payment.due_date);
+    
+    let msg = '';
+    
+    if (dueDate < today) {
+      const daysLate = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+      msg = '❌ *PARCELA VENCIDA*\n\n';
+      msg += '⚠️ Atrasada há ' + daysLate + ' dia(s)\n\n';
+    } else {
+      msg = '🔔 *LEMBRETE DE PAGAMENTO*\n\n';
+      msg += '📅 Vence HOJE\n\n';
+    }
+    
+    msg += payment.emoji + ' *Compra:* ' + payment.description + '\n';
+    msg += '💳 *Parcela:* ' + payment.installment_number + '/' + payment.total_installments + '\n';
+    msg += '💰 *Valor:* ' + this.formatMoney(payment.amount) + '\n';
+    msg += '📅 *Vencimento:* ' + this.formatDateShort(payment.due_date) + '\n\n';
+    msg += '💡 Use `/pagar ' + payment.description + '` para pagar';
     
     return msg;
   }
