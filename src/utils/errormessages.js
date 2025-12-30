@@ -7,7 +7,8 @@ class ErrorMessages {
     return '❌ *Valor inválido*\n\nInforme um valor numérico maior que zero';
   }
 
-  static INSUFFICIENT_BALANCE(type = 'saldo') {
+  static INSUFFICIENT_BALANCE(type) {
+    if (!type) type = 'saldo';
     return '❌ *' + type.charAt(0).toUpperCase() + type.slice(1) + ' insuficiente para realizar esta operação*';
   }
 
@@ -15,7 +16,8 @@ class ErrorMessages {
     return '❌ *Operação cancelada*\n\nNenhuma alteração foi feita';
   }
 
-  static NO_DATA_FOUND(context = 'este período') {
+  static NO_DATA_FOUND(context) {
+    if (!context) context = 'este período';
     return 'ℹ️ *Nenhum registro encontrado para ' + context + '*';
   }
 
