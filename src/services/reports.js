@@ -5,17 +5,10 @@ class ReportGenerator {
 
   // ============ 🔧 CORREÇÃO 1: TIMEZONE BRASIL (America/Sao_Paulo) ============
   
-  /**
-   * FUNÇÃO CENTRAL - Retorna timestamp no fuso horário de Brasília (UTC-3)
-   * Usa process.env.TZ e Intl para garantir precisão
-   */
   getCurrentBrazilTimestamp() {
-    // Configurar timezone do Node.js
     process.env.TZ = 'America/Sao_Paulo';
-    
     const now = new Date();
     
-    // Formatar usando Intl para garantir timezone correto
     const formatter = new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Sao_Paulo',
       year: 'numeric',
@@ -40,14 +33,10 @@ class ReportGenerator {
     };
   }
 
-  /**
-   * Converte uma data armazenada para o fuso horário do Brasil
-   */
   getBrazilDate(date) {
     process.env.TZ = 'America/Sao_Paulo';
     const d = date ? new Date(date) : new Date();
     
-    // Usar Intl para converter corretamente
     const formatter = new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Sao_Paulo',
       year: 'numeric',
@@ -92,8 +81,6 @@ class ReportGenerator {
     return `${day}/${month}/${year}`;
   }
 
-  // ============ RELATÓRIO DE SALDO ============
-  
   generateBalanceReport(user) {
     const timestamp = this.getCurrentBrazilTimestamp();
     const totalMoney = user.current_balance + user.savings_balance + user.emergency_fund;
@@ -138,8 +125,6 @@ class ReportGenerator {
     return report;
   }
 
-  // ============ RELATÓRIO DIÁRIO (JÁ ESTAVA CORRETO) ============
-  
   generateDailyReport(userId) {
     const timestamp = this.getCurrentBrazilTimestamp();
     const user = this.dao.getUserById(userId);
@@ -219,8 +204,6 @@ class ReportGenerator {
     return report;
   }
 
-  // ============ RELATÓRIO SEMANAL ============
-  
   generateWeeklyReport(userId) {
     const timestamp = this.getCurrentBrazilTimestamp();
     const user = this.dao.getUserById(userId);
@@ -298,8 +281,6 @@ class ReportGenerator {
     return report;
   }
 
-  // ============ RELATÓRIO MENSAL ============
-  
   generateMonthlyReport(userId) {
     const timestamp = this.getCurrentBrazilTimestamp();
     const user = this.dao.getUserById(userId);
@@ -392,8 +373,6 @@ class ReportGenerator {
     return report;
   }
 
-  // ============ CONFIRMAÇÃO DE GASTO ============
-  
   generateExpenseConfirmation(expense, user, category) {
     const timestamp = this.getCurrentBrazilTimestamp();
     
@@ -420,8 +399,6 @@ class ReportGenerator {
     return report;
   }
 
-  // ============ 🔧 CORREÇÃO 2: CONFIRMAÇÕES DE POUPANÇA E EMERGÊNCIA (JÁ CORRETAS) ============
-  
   generateSavingsConfirmation(action, amount, user) {
     const timestamp = this.getCurrentBrazilTimestamp();
     let msg = action === 'deposit' ? '✅ *DINHEIRO GUARDADO*\n\n' : '✅ *DINHEIRO RETIRADO*\n\n';
@@ -464,8 +441,6 @@ class ReportGenerator {
     
     return msg;
   }
-
-  // ============ PARCELAMENTOS ============
 
   generateInstallmentsList(userId) {
     const timestamp = this.getCurrentBrazilTimestamp();
@@ -541,8 +516,6 @@ class ReportGenerator {
     
     return report;
   }
-
-  // ============ LEMBRETES ============
 
   getBrazilDateOnly(date) {
     const d = this.getBrazilDate(date);
@@ -640,8 +613,6 @@ class ReportGenerator {
     return msg;
   }
 
-  // ============ CONFIRMAÇÕES DE ZERAGEM ============
-
   generateResetConfirmation(type) {
     const timestamp = this.getCurrentBrazilTimestamp();
     let msg = '✅ *OPERAÇÃO CONCLUÍDA*\n\n';
@@ -730,8 +701,6 @@ class ReportGenerator {
     
     return msg;
   }
-
-  // ============ MENSAGENS DE AJUDA E BEM-VINDO ============
 
   generateHelpMessage() {
     const timestamp = this.getCurrentBrazilTimestamp();
@@ -831,5 +800,3 @@ class ReportGenerator {
 }
 
 module.exports = ReportGenerator;
-        report += `
-        ///com problemas, falta o resto do codigo, to sem cabeça pra codar
