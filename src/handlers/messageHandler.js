@@ -49,7 +49,7 @@ class MessageHandler {
         
         await this.whatsapp.replyMessage(message, this.reports.generateWelcomeMessage(name));
         await this.whatsapp.sendPresence(chatId, 'available');
-        return; // 🔧 CORREÇÃO 4: Fluxo encerrado
+        return;
       }
 
       if (isGroup) {
@@ -107,7 +107,7 @@ class MessageHandler {
         }
         
         await this.whatsapp.replyMessage(message, response);
-        return; // 🔧 CORREÇÃO 4: Encerrar fluxo
+        return;
       }
       
       else if (command.command === 'addBalance') {
@@ -143,7 +143,7 @@ class MessageHandler {
         }
         
         await this.whatsapp.replyMessage(message, response);
-        return; // 🔧 CORREÇÃO 4: Encerrar fluxo
+        return;
       }
       
       else if (command.command === 'getBalance') {
@@ -160,15 +160,19 @@ class MessageHandler {
           '🕑 ' + timestamp.formatted;
       }
       
-      // 🔧 CORREÇÃO 2 E 4: Poupança com confirmação explícita + encerramento
+      // 🔧 CORREÇÃO: Validação de user antes de gerar confirmação
       else if (command.command === 'depositSavings') {
         if (command.amount && command.amount > 0) {
           const success = this.dao.addToSavings(user.id, command.amount);
           
           if (success) {
             const updatedUser = this.dao.getUserById(user.id);
-            response = this.reports.generateSavingsConfirmation('deposit', command.amount, updatedUser);
-            console.log('🏷 ' + user.name + ': guardou ' + command.amount);
+            if (updatedUser) {
+              response = this.reports.generateSavingsConfirmation('deposit', command.amount, updatedUser);
+              console.log('🏷 ' + user.name + ': guardou ' + command.amount);
+            } else {
+              response = '❌ *Erro ao buscar dados atualizados*\n\n🕑 ' + timestamp.formatted;
+            }
           } else {
             response = ErrorMessages.INSUFFICIENT_BALANCE('Saldo') + '\n\n🕑 ' + timestamp.formatted;
           }
@@ -177,7 +181,7 @@ class MessageHandler {
         }
         
         await this.whatsapp.replyMessage(message, response);
-        return; // 🔧 CORREÇÃO 4: Encerrar fluxo após confirmação
+        return;
       }
       
       else if (command.command === 'withdrawSavings') {
@@ -186,8 +190,12 @@ class MessageHandler {
           
           if (success) {
             const updatedUser = this.dao.getUserById(user.id);
-            response = this.reports.generateSavingsConfirmation('withdraw', command.amount, updatedUser);
-            console.log('🏷 ' + user.name + ': retirou ' + command.amount);
+            if (updatedUser) {
+              response = this.reports.generateSavingsConfirmation('withdraw', command.amount, updatedUser);
+              console.log('🏷 ' + user.name + ': retirou ' + command.amount);
+            } else {
+              response = '❌ *Erro ao buscar dados atualizados*\n\n🕑 ' + timestamp.formatted;
+            }
           } else {
             response = ErrorMessages.INSUFFICIENT_BALANCE('Poupança') + '\n\n🕑 ' + timestamp.formatted;
           }
@@ -196,7 +204,7 @@ class MessageHandler {
         }
         
         await this.whatsapp.replyMessage(message, response);
-        return; // 🔧 CORREÇÃO 4: Encerrar fluxo após confirmação
+        return;
       }
       
       else if (command.command === 'getEmergency') {
@@ -208,15 +216,19 @@ class MessageHandler {
           '🕑 ' + timestamp.formatted;
       }
       
-      // 🔧 CORREÇÃO 2 E 4: Emergência com confirmação explícita + encerramento
+      // 🔧 CORREÇÃO: Validação de user antes de gerar confirmação
       else if (command.command === 'depositEmergency') {
         if (command.amount && command.amount > 0) {
           const success = this.dao.addToEmergencyFund(user.id, command.amount);
           
           if (success) {
             const updatedUser = this.dao.getUserById(user.id);
-            response = this.reports.generateEmergencyConfirmation('deposit', command.amount, updatedUser);
-            console.log('🚨 ' + user.name + ': reservou ' + command.amount);
+            if (updatedUser) {
+              response = this.reports.generateEmergencyConfirmation('deposit', command.amount, updatedUser);
+              console.log('🚨 ' + user.name + ': reservou ' + command.amount);
+            } else {
+              response = '❌ *Erro ao buscar dados atualizados*\n\n🕑 ' + timestamp.formatted;
+            }
           } else {
             response = ErrorMessages.INSUFFICIENT_BALANCE('Saldo') + '\n\n🕑 ' + timestamp.formatted;
           }
@@ -225,7 +237,7 @@ class MessageHandler {
         }
         
         await this.whatsapp.replyMessage(message, response);
-        return; // 🔧 CORREÇÃO 4: Encerrar fluxo após confirmação
+        return;
       }
       
       else if (command.command === 'withdrawEmergency') {
@@ -234,8 +246,12 @@ class MessageHandler {
           
           if (success) {
             const updatedUser = this.dao.getUserById(user.id);
-            response = this.reports.generateEmergencyConfirmation('withdraw', command.amount, updatedUser);
-            console.log('🚨 ' + user.name + ': usou reserva ' + command.amount);
+            if (updatedUser) {
+              response = this.reports.generateEmergencyConfirmation('withdraw', command.amount, updatedUser);
+              console.log('🚨 ' + user.name + ': usou reserva ' + command.amount);
+            } else {
+              response = '❌ *Erro ao buscar dados atualizados*\n\n🕑 ' + timestamp.formatted;
+            }
           } else {
             response = ErrorMessages.INSUFFICIENT_BALANCE('Reserva') + '\n\n🕑 ' + timestamp.formatted;
           }
@@ -244,12 +260,11 @@ class MessageHandler {
         }
         
         await this.whatsapp.replyMessage(message, response);
-        return; // 🔧 CORREÇÃO 4: Encerrar fluxo após confirmação
+        return;
       }
       
-      else if (command.command === 'reportDaily') {
-        response = this.reports.generateDailyReport(user.id);
-      }
+      // 🔧 CORREÇÃO: RELATÓRIO DIÁRIO REMOVIDO
+      // else if (command.command === 'reportDaily') { ... }
       
       else if (command.command === 'reportWeekly') {
         response = this.reports.generateWeeklyReport(user.id);

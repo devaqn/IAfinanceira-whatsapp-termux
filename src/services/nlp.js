@@ -8,7 +8,6 @@ class NLPProcessor {
       /^(\d+(?:[.,]\d{1,2})?)\s+/
     ];
 
-    // 🆕 Padrão para parcelamento
     this.installmentPattern = /(\d+(?:[.,]\d{1,2})?)\s*(?:em|por|parcelado em|parcelada em|parcelado|parcelada)\s*(\d+)x?/i;
 
     this.commandPatterns = {
@@ -17,25 +16,25 @@ class NLPProcessor {
       getBalance: /^\/saldo\s*$/i,
       addBalance: /^\/adicionar\s+(\d+(?:[.,]\d{1,2})?)/i,
       
-      // Poupança - COM E SEM ACENTO
+      // Poupança
       getSavings: /^\/poupan[cç]a\s*$/i,
       depositSavings: /^\/guardar\s+(\d+(?:[.,]\d{1,2})?)/i,
       withdrawSavings: /^\/retirar\s+(\d+(?:[.,]\d{1,2})?)/i,
       
-      // Reserva de emergência - COM E SEM ACENTO
+      // Reserva de emergência
       getEmergency: /^\/emerg[eê]ncia\s*$/i,
       depositEmergency: /^\/reservar\s+(\d+(?:[.,]\d{1,2})?)/i,
       withdrawEmergency: /^\/usar\s+(\d+(?:[.,]\d{1,2})?)/i,
       
-      // 🆕 Parcelamentos - COM E SEM ACENTO
+      // Parcelamentos
       getInstallments: /^\/parcelamentos?\s*$/i,
       payInstallment: /^\/pagar\s+(?:parcela\s+)?(.+)/i,
       
-      // 🆕 Lembretes - COM E SEM ACENTO
+      // Lembretes
       getReminders: /^\/(?:lembretes?|lembrar|avisos?)/i,
       getDuePayments: /^\/(?:vencidas?|atrasadas?|pendentes?)/i,
       
-      // 🆕 Zeragem - COM E SEM ACENTO
+      // Zeragem
       resetBalance: /^\/(?:zerar|resetar|limpar)\s+saldo\s*$/i,
       resetSavings: /^\/(?:zerar|resetar|limpar)\s+poupan[cç]a\s*$/i,
       resetEmergency: /^\/(?:zerar|resetar|limpar)\s+(?:reserva|reserva\s+emerg[eê]ncia|reserva\s+emergencia)\s*$/i,
@@ -45,13 +44,12 @@ class NLPProcessor {
       // Confirmação de zeragem
       confirmReset: /^SIM,?\s*ZERAR\s+TUDO\s*$/i,
       
-      // Relatórios - COM E SEM ACENTO - MÚLTIPLAS VARIAÇÕES
-      reportDaily: /^\/relat[oó]rio\s+(?:hoje|di[aá]rio|diario|day|daily)/i,
+      // 🔧 CORREÇÃO: REMOVIDO RELATÓRIO DIÁRIO
+      // Apenas relatórios semanal e mensal
       reportWeekly: /^\/relat[oó]rio\s+(?:semana|semanal|week|weekly)/i,
       reportMonthly: /^\/relat[oó]rio\s+(?:m[eê]s|mes|mensal|month|monthly)/i,
       
-      // Comandos diretos sem "/relatório"
-      reportDailyShort: /^\/(?:hoje|di[aá]rio|diario)\s*$/i,
+      // Comandos diretos
       reportWeeklyShort: /^\/(?:semana|semanal)\s*$/i,
       reportMonthlyShort: /^\/(?:m[eê]s|mes|mensal)\s*$/i,
       
@@ -73,12 +71,10 @@ class NLPProcessor {
     return null;
   }
 
-  // 🆕 Detectar parcelamento
   isInstallmentPurchase(text) {
     return this.installmentPattern.test(text);
   }
 
-  // 🆕 Extrair informações de parcelamento
   extractInstallmentInfo(text) {
     const match = text.match(this.installmentPattern);
     if (!match) return null;
@@ -97,19 +93,15 @@ class NLPProcessor {
     };
   }
 
-  // 🆕 Extrair descrição de parcelamento
   extractInstallmentDescription(text, totalAmount, installments) {
     let description = text;
     
-    // Remover padrões de gasto
     description = description.replace(/^(?:gastei|paguei|comprei|saiu|foi|custou|deu)\s+/i, '');
     
-    // Remover valores e parcelamento
     const amountStr = totalAmount.toString().replace('.', '[.,]');
     description = description.replace(new RegExp('(?:r\\$|rs)?\\s*' + amountStr, 'gi'), '');
     description = description.replace(/\s*(?:em|por|parcelado em|parcelada em|parcelado|parcelada)\s*\d+x?/gi, '');
     
-    // Remover símbolos de moeda
     description = description.replace(/(?:r\$|rs)\s*/gi, '');
     description = description.replace(/^\s*(?:em|de|com|no|na|para|pro|pra)\s+/i, '');
     description = description.trim();
@@ -144,9 +136,7 @@ class NLPProcessor {
       if (match) {
         const result = { command: command };
         
-        // Comandos com valor
         if (match[1]) {
-          // Se for payInstallment, capturar descrição
           if (command === 'payInstallment') {
             result.description = match[1].trim();
           } else {
@@ -154,8 +144,7 @@ class NLPProcessor {
           }
         }
         
-        // Mapear comandos curtos para os principais
-        if (command === 'reportDailyShort') result.command = 'reportDaily';
+        // Mapear comandos curtos
         if (command === 'reportWeeklyShort') result.command = 'reportWeekly';
         if (command === 'reportMonthlyShort') result.command = 'reportMonthly';
         
@@ -198,7 +187,6 @@ class NLPProcessor {
       };
     }
 
-    // 🆕 Verificar se é compra parcelada
     if (this.isInstallmentPurchase(text) && this.looksLikeExpense(text)) {
       const installmentInfo = this.extractInstallmentInfo(text);
       
